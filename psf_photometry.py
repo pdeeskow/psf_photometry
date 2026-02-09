@@ -90,7 +90,7 @@ def solve_plate(fits_path, api_key=None):
             if wcs.has_celestial:
                 print("Using WCS from FITS header")
                 return wcs
-        except:
+        except Exception:
             pass
         raise ValueError("Could not obtain WCS solution")
 
@@ -347,14 +347,13 @@ def main():
         # Perform PSF photometry (update flux values)
         psf_result = perform_psf_photometry(data, sources, fwhm=args.fwhm)
         
-        # Create a mapping from source index to PSF flux
-        # PSF result has an 'id' column that corresponds to the source index
-        psf_flux_map = {i: psf_result['flux_fit'][i] for i in range(len(psf_result))}
+        # Create a mapping from source id to PSF flux using the 'id' column
+        psf_flux_map = {psf_result['id'][i]: psf_result['flux_fit'][i] for i in range(len(psf_result))}
         
         # Update flux values in matched table with PSF photometry results
         for i, source_id in enumerate(matched['source_id']):
-            if source_id < len(psf_result):
-                matched['flux'][i] = psf_flux_map.get(source_id, matched['flux'][i])
+            if source_id in psf_flux_map:
+                matched['flux'][i] = psf_flux_map[source_id]
         
         # Write results
         write_results(args.output, matched)
