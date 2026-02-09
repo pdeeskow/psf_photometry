@@ -23,9 +23,9 @@ from astropy import units as u
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from photutils.detection import DAOStarFinder
-from photutils.psf import IntegratedGaussianPRF, SourceGrouper
-from photutils.background import MMMBackground, MADStdBackgroundRMS
-from photutils.psf import IterativePSFPhotometry
+from photutils.psf import CircularGaussianSigmaPRF, SourceGrouper
+from photutils.background import MMMBackground, MADStdBackgroundRMS, LocalBackground
+from photutils.psf import PSFPhotometry
 from astroquery.astrometry_net import AstrometryNet
 from astroquery.vizier import Vizier
 
@@ -256,25 +256,29 @@ def perform_psf_photometry(data, sources, fwhm=3.0):
     
     # Set up PSF model
     sigma = fwhm / 2.355  # Convert FWHM to sigma
-    psf_model = IntegratedGaussianPRF(sigma=sigma)
+    psf_model = CircularGaussianSigmaPRF(sigma=sigma)
+    
+    # Set up local background estimator
+    # Use annulus around each source for background estimation
+    bkg_estimator = LocalBackground(
+        inner_radius=fwhm * 2,
+        outer_radius=fwhm * 3,
+        bkg_estimator=MMMBackground()
+    )
     
     # Set up photometry
-    bkgrms = MADStdBackgroundRMS()
-    std = bkgrms(data)
-    
     grouper = SourceGrouper(min_separation=2.0 * fwhm)
     
-    photometry = IterativePSFPhotometry(
+    photometry = PSFPhotometry(
         psf_model=psf_model,
         fit_shape=(11, 11),
-        finder=None,  # We already have sources
         grouper=grouper,
-        localbkg_estimator=MMMBackground(),
+        localbkg_estimator=bkg_estimator,
         aperture_radius=fwhm
     )
     
     # Perform photometry
-    result = photometry(image=data, init_params=sources)
+    result = photometry(data=data, init_params=sources)
     
     print(f"PSF photometry complete for {len(result)} sources")
     return result
