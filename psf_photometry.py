@@ -23,9 +23,9 @@ from astropy import units as u
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from photutils.detection import DAOStarFinder
-from photutils.psf import IntegratedGaussianPRF, DAOGroup
+from photutils.psf import IntegratedGaussianPRF, SourceGrouper
 from photutils.background import MMMBackground, MADStdBackgroundRMS
-from photutils.psf import IterativelySubtractedPSFPhotometry
+from photutils.psf import IterativePSFPhotometry
 from astroquery.astrometry_net import AstrometryNet
 from astroquery.vizier import Vizier
 
@@ -262,19 +262,19 @@ def perform_psf_photometry(data, sources, fwhm=3.0):
     bkgrms = MADStdBackgroundRMS()
     std = bkgrms(data)
     
-    daogroup = DAOGroup(2.0 * fwhm)
+    grouper = SourceGrouper(min_separation=2.0 * fwhm)
     
-    photometry = IterativelySubtractedPSFPhotometry(
-        finder=None,  # We already have sources
-        group_maker=daogroup,
-        bkg_estimator=MMMBackground(),
+    photometry = IterativePSFPhotometry(
         psf_model=psf_model,
-        fitter=None,  # Use default
-        fitshape=(11, 11)
+        fit_shape=(11, 11),
+        finder=None,  # We already have sources
+        grouper=grouper,
+        localbkg_estimator=MMMBackground(),
+        aperture_radius=fwhm
     )
     
     # Perform photometry
-    result = photometry(image=data, init_guesses=sources)
+    result = photometry(image=data, init_params=sources)
     
     print(f"PSF photometry complete for {len(result)} sources")
     return result
@@ -343,9 +343,14 @@ def main():
         # Perform PSF photometry (update flux values)
         psf_result = perform_psf_photometry(data, sources, fwhm=args.fwhm)
         
+        # Create a mapping from source index to PSF flux
+        # PSF result has an 'id' column that corresponds to the source index
+        psf_flux_map = {i: psf_result['flux_fit'][i] for i in range(len(psf_result))}
+        
         # Update flux values in matched table with PSF photometry results
         for i, source_id in enumerate(matched['source_id']):
-            matched['flux'][i] = psf_result['flux_fit'][source_id]
+            if source_id < len(psf_result):
+                matched['flux'][i] = psf_flux_map.get(source_id, matched['flux'][i])
         
         # Write results
         write_results(args.output, matched)
